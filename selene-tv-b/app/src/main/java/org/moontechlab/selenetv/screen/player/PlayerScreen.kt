@@ -116,6 +116,11 @@ fun PlayerScreen(launch: PlayerLaunch, onExit: () -> Unit, modifier: Modifier = 
     var controlsVisible by remember { mutableStateOf(true) }
     var currentEpisode by remember { mutableIntStateOf(launch.episodeIndex) }
     var currentSourceKey by remember { mutableStateOf(launch.selectedSourceKey) }
+    // 自动换线提示（与 C 版同一文案/样式）：切源成功后顶部明示，下一条载入即清掉。
+    var fallbackNotice by remember { mutableStateOf<String?>(null) }
+    // 自动换线已试过的源 key（本集内）：失败即记入，全部试完才停手；换集后清空。
+    var autoFailedKeys by remember { mutableStateOf(setOf<String>()) }
+    LaunchedEffect(currentEpisode) { autoFailedKeys = emptySet() }
     var panelOpen by remember { mutableStateOf(false) }
     var panelTab by remember { mutableStateOf(PanelTab.Detail) }
     // 选集/换源 内容区按「上」回标签栏的中转标志。选集网格 = LazyHorizontalGrid、换源 = LazyRow，
@@ -277,6 +282,7 @@ fun PlayerScreen(launch: PlayerLaunch, onExit: () -> Unit, modifier: Modifier = 
         val src = launch.sources.firstOrNull { sourceKey(it) == currentSourceKey } ?: launch.selectedSource
         val raw = src?.episodes?.getOrNull(index) ?: return
         scope.launch {
+            fallbackNotice = null
             val proxy = org.moontechlab.selenetv.service.AppDataService.getM3u8ProxyUrl()
             controller.load(PlayProgress.buildPlayUrl(raw, proxy), startMs)
         }
@@ -438,13 +444,42 @@ fun PlayerScreen(launch: PlayerLaunch, onExit: () -> Unit, modifier: Modifier = 
         onDispose { controller.onEnded = {} }
     }
 
-    // 播放出错：唤出换源面板让用户改选其他源
+    // 播放出错：按当前源顺序自动换线（保集号+保位置，切完顶部明示）；
+    // 全部源都失败才唤出换源面板让用户手动选。
     LaunchedEffect(controller.error) {
-        if (controller.error != null) {
-            controlsVisible = true
-            panelTab = PanelTab.Sources
-            panelOpen = true
+        if (controller.error == null) return@LaunchedEffect
+        val failedKeys = autoFailedKeys + currentSourceKey
+        val next = sources.firstOrNull {
+            sourceKey(it) != currentSourceKey && sourceKey(it) !in failedKeys && it.episodes.isNotEmpty()
         }
+        if (next != null) {
+            autoFailedKeys = failedKeys
+            // 与面板换源同一规则：切源删除旧源记录，避免同一内容残留多条续看
+            val oldSrc = launch.sources.firstOrNull { sourceKey(it) == currentSourceKey } ?: launch.selectedSource
+            oldSrc?.let { old ->
+                scope.launch {
+                    try {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            org.moontechlab.selenetv.data.Repositories.userData().deletePlayRecord(old.source, old.id)
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+            reporter.resetThrottle()
+            val carriedMs = controller.positionMs
+            val newKey = sourceKey(next)
+            // 带进度续播：新源集数足够则保持集号与位置，否则回落到第 1 集 0 秒
+            val newEpisode = currentEpisode.coerceIn(0, (next.episodes.lastIndex).coerceAtLeast(0))
+            val startMs = if (newEpisode == currentEpisode) carriedMs else 0L
+            currentSourceKey = newKey
+            currentEpisode = newEpisode
+            fallbackNotice = "当前源播放失败，已自动切换到：${next.sourceName}"
+            playEpisode(newEpisode, startMs)
+            return@LaunchedEffect
+        }
+        controlsVisible = true
+        panelTab = PanelTab.Sources
+        panelOpen = true
     }
 
     // App 退到后台：强制保存 + 暂停播放
@@ -703,6 +738,18 @@ fun PlayerScreen(launch: PlayerLaunch, onExit: () -> Unit, modifier: Modifier = 
                     .padding(horizontal = 20.dp, vertical = 12.dp),
             ) {
                 Text(text = "此源播放失败，请尝试换源", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.W600)
+            }
+        }
+        if (fallbackNotice != null && controller.error == null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 40.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xCC000000))
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+            ) {
+                Text(text = fallbackNotice!!, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.W600)
             }
         }
 

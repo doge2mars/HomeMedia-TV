@@ -280,6 +280,10 @@ fun PlayerScreen(launch: PlayerLaunch, onExit: () -> Unit, modifier: Modifier = 
     var fallbackDone by remember { mutableStateOf(false) }
     var fallbackNotice by remember { mutableStateOf<String?>(null) }
 
+    // 自动换线已试过的源 key（本集内）：失败即记入，全部试完才停手；换集后清空。
+    var autoFailedKeys by remember { mutableStateOf(setOf<String>()) }
+    LaunchedEffect(currentEpisode) { autoFailedKeys = emptySet() }
+
     // 载入指定集；startMs 为续播位置（切集默认 0，进入时用 launch.startPositionMs）
     fun playEpisode(index: Int, startMs: Long) {
         val src = launch.sources.firstOrNull { sourceKey(it) == currentSourceKey } ?: launch.selectedSource
@@ -464,7 +468,9 @@ fun PlayerScreen(launch: PlayerLaunch, onExit: () -> Unit, modifier: Modifier = 
         onDispose { controller.onEnded = {} }
     }
 
-    // 播放出错：代理优先且本次走代理且未回退过 → 切直连重试一次（不断点），并提示；否则唤出换源面板
+    // 播放出错：代理优先且本次走代理且未回退过 → 切直连重试一次（不断点），并提示；
+    // 否则自动换线：按当前源顺序找下一个未失败过的源，保集号+保位置切过去并明示；
+    // 全部源都失败才唤出换源面板让用户手动选。
     LaunchedEffect(controller.error) {
         val err = controller.error ?: return@LaunchedEffect
         if (currentPlayMode == org.moontechlab.selenetv.service.AppDataService.PlayMode.PROXY_FIRST
@@ -479,6 +485,35 @@ fun PlayerScreen(launch: PlayerLaunch, onExit: () -> Unit, modifier: Modifier = 
                 controller.load(rawUrl, resumeMs)
                 return@LaunchedEffect
             }
+        }
+        val failedKeys = autoFailedKeys + currentSourceKey
+        val next = sources.firstOrNull {
+            sourceKey(it) != currentSourceKey && sourceKey(it) !in failedKeys && it.episodes.isNotEmpty()
+        }
+        if (next != null) {
+            autoFailedKeys = failedKeys
+            // 与面板换源同一规则：切源删除旧源记录，避免同一内容残留多条续看
+            val oldSrc = launch.sources.firstOrNull { sourceKey(it) == currentSourceKey } ?: launch.selectedSource
+            oldSrc?.let { old ->
+                scope.launch {
+                    try {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            org.moontechlab.selenetv.data.Repositories.userData().deletePlayRecord(old.source, old.id)
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+            reporter.resetThrottle()
+            val carriedMs = controller.positionMs
+            val newKey = sourceKey(next)
+            // 带进度续播：新源集数足够则保持集号与位置，否则回落到第 1 集 0 秒
+            val newEpisode = currentEpisode.coerceIn(0, (next.episodes.lastIndex).coerceAtLeast(0))
+            val startMs = if (newEpisode == currentEpisode) carriedMs else 0L
+            currentSourceKey = newKey
+            currentEpisode = newEpisode
+            fallbackNotice = "当前源播放失败，已自动切换到：${next.sourceName}"
+            playEpisode(newEpisode, startMs)
+            return@LaunchedEffect
         }
         controlsVisible = true
         panelTab = PanelTab.Sources

@@ -83,6 +83,9 @@ fun DetailActionButtons(
     // 当前源无播放记录、但其他源有可迁移记录时显示「迁移记录」。点击打开记录选择弹窗。
     showMigrate: Boolean = false,
     onMigrate: () -> Unit = {},
+    // 多源时显示「换源」：打开一键换源菜单（菜单键亦可呼出），切源保留当前进度。
+    showSwitchSource: Boolean = false,
+    onSwitchSource: () -> Unit = {},
     // 详情 hero 已出但播放源仍在解析：无任何动作按钮可承接焦点。此时在主按钮槽位放一个等高的
     // 加载占位胶囊（承接 primaryFocus），既给焦点落点/明确反馈，又预留行高，源就绪后原位替换、零跳变。
     sourcesLoading: Boolean = false,
@@ -116,6 +119,13 @@ fun DetailActionButtons(
                 text = if (showContinue) "从头播放" else "播放",
                 onClick = onPlay,
                 modifier = if (showContinue) Modifier else Modifier.focusRequester(primaryFocusRequester),
+            )
+        }
+        if (showSwitchSource) {
+            PillActionButton(
+                text = "换源",
+                icon = Icons.Default.SwapHoriz,
+                onClick = onSwitchSource,
             )
         }
         if (showMigrate) {

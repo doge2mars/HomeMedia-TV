@@ -31,6 +31,7 @@ import org.moontechlab.selenetv.model.VideoInfo
 import org.moontechlab.selenetv.screen.player.LivePlayerScreen
 import org.moontechlab.selenetv.screen.tab.*
 import org.moontechlab.selenetv.ui.AnimatedTabContent
+import org.moontechlab.selenetv.ui.MoonToast
 import org.moontechlab.selenetv.ui.TabSwitcher
 import org.moontechlab.selenetv.ui.TextMeasureProvider
 
@@ -83,6 +84,8 @@ fun HomeScreen(navController: androidx.navigation.NavController) {
     val tvCategoryFocusRequester = remember { FocusRequester() }
     val animeCategoryFocusRequester = remember { FocusRequester() }
     val showCategoryFocusRequester = remember { FocusRequester() }
+    val favoritesFocusRequester = remember { FocusRequester() }
+    val historyFocusRequester = remember { FocusRequester() }
     val liveFocusRequester = remember { FocusRequester() }
     val settingsFocusRequester = remember { FocusRequester() }
     
@@ -114,6 +117,24 @@ fun HomeScreen(navController: androidx.navigation.NavController) {
     // 当焦点在 TabSwitcher 且不在首页时，拦截返回键，切换到首页
     BackHandler(enabled = detailEntry == null && liveLaunch == null && isTabSwitcherFocused && selectedTabId != "home") {
         selectedTabId = "home"
+    }
+
+    // 首页顶层再按一次返回才退出：避免焦点落在 TabSwitcher 的首页上、误触一下返回就直接退出。
+    // 与播放页/直播页的「再按一次返回退出」同一文案、同一 2 秒窗口。
+    var backExitArmed by remember { mutableStateOf(false) }
+    LaunchedEffect(backExitArmed) {
+        if (backExitArmed) {
+            delay(2000)
+            backExitArmed = false
+        }
+    }
+    BackHandler(enabled = detailEntry == null && liveLaunch == null && isTabSwitcherFocused && selectedTabId == "home") {
+        if (backExitArmed) {
+            (context as? Activity)?.finish()
+        } else {
+            backExitArmed = true
+            MoonToast.show("再按一次返回退出")
+        }
     }
     
     // 创建渐变背景
@@ -227,6 +248,8 @@ fun HomeScreen(navController: androidx.navigation.NavController) {
                             "series" -> tvCategoryFocusRequester.requestFocus()
                             "anime" -> animeCategoryFocusRequester.requestFocus()
                             "show" -> showCategoryFocusRequester.requestFocus()
+                            "favorites" -> favoritesFocusRequester.requestFocus()
+                            "history" -> historyFocusRequester.requestFocus()
                             "live" -> liveFocusRequester.requestFocus()
                             "settings" -> settingsFocusRequester.requestFocus()
                         }
@@ -260,6 +283,18 @@ fun HomeScreen(navController: androidx.navigation.NavController) {
                     scrollState = scrollState,
                     onVideoSelected = openDetail,
                     homeRefreshKey = homeRefreshKey,
+                )
+                "favorites" -> FavoritesTab(
+                    focusRequester = favoritesFocusRequester,
+                    scrollState = scrollState,
+                    onVideoSelected = openDetail,
+                    refreshKey = homeRefreshKey,
+                )
+                "history" -> HistoryTab(
+                    focusRequester = historyFocusRequester,
+                    scrollState = scrollState,
+                    onVideoSelected = openDetail,
+                    refreshKey = homeRefreshKey,
                 )
                 "movies" -> MovieTab(
                     categoryFocusRequester = movieCategoryFocusRequester,

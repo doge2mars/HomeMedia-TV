@@ -34,6 +34,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -620,6 +621,10 @@ fun DetailScreen(entry: DetailEntry, onBack: () -> Unit, onGoToSearch: (String) 
     var migrateDeleteVisible by remember { mutableStateOf(false) }
     var migrateDeleteEverOpened by remember { mutableStateOf(false) }
 
+    // 一键换源菜单（「换源」按钮 / 菜单键呼出）：列出全部源，选中即切源并保进度。
+    var switchMenuVisible by remember { mutableStateOf(false) }
+    var switchMenuEverOpened by remember { mutableStateOf(false) }
+
     // 关闭回焦：CardContextMenu/ConfirmDialog 是 focusable Popup，关闭有 ~150ms 收起动画，期间 Popup 仍持
     // 窗口焦点。必须等动画结束、Popup 移除后再 requestFocus，否则夺焦被吞（与 EpisodePickerDialog 同因，
     // 只是它用立即移除的 Dialog、本处用带动画的 Popup，故延迟更长）。用状态驱动而非关闭回调，避免选中分支
@@ -638,6 +643,15 @@ fun DetailScreen(entry: DetailEntry, onBack: () -> Unit, onGoToSearch: (String) 
         if (!migrateDeleteVisible && migrateDeleteEverOpened) {
             kotlinx.coroutines.delay(220)
             // 删除确认关闭时当前源已有迁移记录，primaryFocus 已挂到「继续」按钮，回焦到它即可。
+            try { primaryFocus.requestFocus() } catch (_: Exception) {}
+        }
+    }
+
+    // 换源菜单关闭后回焦：CardContextMenu 是带收起动画的 Popup，需等动画结束再请求，
+    // 否则夺焦被吞（与迁移记录选择弹窗同一原因、同一延迟）。
+    LaunchedEffect(switchMenuVisible) {
+        if (!switchMenuVisible && switchMenuEverOpened) {
+            kotlinx.coroutines.delay(220)
             try { primaryFocus.requestFocus() } catch (_: Exception) {}
         }
     }
@@ -704,6 +718,50 @@ fun DetailScreen(entry: DetailEntry, onBack: () -> Unit, onGoToSearch: (String) 
         }
     }
 
+    // 一键换源：切到指定源。旧源有记录、新源无记录时把记录迁移过去（同集同秒，
+    // 与 onMigrateSelect 同一构造），落库成功后追问是否删除原记录（复用迁移确认弹窗，
+    // 防旧记录串集）；新源已有记录则直接切，续看走新源自己的记录。
+    val switchSource: (String) -> Unit = lam@{ key ->
+        val target = state.sources.firstOrNull { sourceKey(it) == key } ?: return@lam
+        switchMenuVisible = false
+        if (key == state.selectedSourceKey) return@lam
+        val oldRec = state.selectedPlayRecord
+        val newKey = sourceKey(target)
+        if (oldRec != null && state.playRecords[newKey] == null) {
+            val migrated = PlayRecord(
+                id = target.id,
+                source = target.source,
+                title = state.heroInfo?.title?.takeIf { it.isNotBlank() } ?: oldRec.title,
+                sourceName = target.sourceName,
+                year = target.year.ifBlank { oldRec.year },
+                cover = target.poster.ifBlank { oldRec.cover },
+                index = oldRec.index.coerceIn(1, target.episodes.size.coerceAtLeast(1)),
+                totalEpisodes = target.episodes.size.coerceAtLeast(1),
+                playTime = oldRec.playTime,
+                totalTime = oldRec.totalTime,
+                saveTime = System.currentTimeMillis(),
+                searchTitle = state.heroInfo?.title?.takeIf { it.isNotBlank() } ?: oldRec.searchTitle,
+            )
+            state = state.copy(selectedSourceKey = key, playRecords = state.playRecords + (newKey to migrated))
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) { Repositories.userData().savePlayRecord(migrated) }
+                } catch (e: Exception) {
+                    state = state.copy(playRecords = state.playRecords - newKey)
+                    showToast("切换播放源失败：${e.message ?: "未知错误"}")
+                    return@launch
+                }
+                showToast("已切换到：${target.sourceName}")
+                migrateDeleteRec = oldRec
+                migrateDeleteEverOpened = true
+                migrateDeleteVisible = true
+            }
+        } else {
+            state = state.copy(selectedSourceKey = key)
+            showToast("已切换到：${target.sourceName}")
+        }
+    }
+
     val gradientBrush = Brush.verticalGradient(
         0.0f to Color(0xFF0a0a0a),
         0.4f to Color(0xFF1a1a1a),
@@ -722,7 +780,16 @@ fun DetailScreen(entry: DetailEntry, onBack: () -> Unit, onGoToSearch: (String) 
             // 内部的播放页 / 选集弹窗 / 简介弹窗都是本组子节点，焦点在它们之间移动属组内移动，
             // 不触发 exit，故不受影响。
             .focusGroup()
-            .focusProperties { exit = { FocusRequester.Cancel } },
+            .focusProperties { exit = { FocusRequester.Cancel } }
+            // 菜单键呼出一键换源（与动作行的「换源」按钮同一菜单）；播放页打开时焦点在 Dialog
+            // 独立窗口内，按键到不了这里，不会误触。
+            .onPreviewKeyEvent { keyEvent ->
+                if (keyEvent.type == KeyEventType.KeyDown && keyEvent.key == Key.Menu && state.sources.size > 1) {
+                    switchMenuEverOpened = true
+                    switchMenuVisible = true
+                    true
+                } else false
+            },
     ) {
         // 零尺寸焦点捕获器：入场即承接焦点，使方向键在内容就绪前不外漏到首页。
         // 零尺寸不参与方向键的 2D 焦点搜索，故不干扰内容出现后的正常导航。
@@ -834,6 +901,9 @@ fun DetailScreen(entry: DetailEntry, onBack: () -> Unit, onGoToSearch: (String) 
                                 // 当前源无记录、且本片其他源有可迁移记录时显示「迁移记录」
                                 showMigrate = hasSource && !hasRecord && migrateCandidates.isNotEmpty(),
                                 onMigrate = { migratePickerEverOpened = true; migratePickerVisible = true },
+                                // 多源时显示「换源」：打开一键换源菜单
+                                showSwitchSource = hasSource && state.sources.size > 1,
+                                onSwitchSource = { switchMenuEverOpened = true; switchMenuVisible = true },
                             )
                             }
                     }
@@ -963,6 +1033,25 @@ fun DetailScreen(entry: DetailEntry, onBack: () -> Unit, onGoToSearch: (String) 
             onConfirm = { migrateDeleteRec?.let { onDeleteOriginalRecord(it) } },
             // 回焦由上方 LaunchedEffect(migrateDeleteVisible) 统一处理
             onCancel = { migrateDeleteVisible = false },
+        )
+
+        // 一键换源菜单：当前源打勾；测速已出分的源附分辨率·速度。
+        // 回焦由上方 LaunchedEffect(switchMenuVisible) 统一处理（需等 Popup 收起动画结束）。
+        org.moontechlab.selenetv.ui.CardContextMenu(
+            visible = switchMenuVisible,
+            title = "换源（切源保留当前进度）",
+            items = state.sources.map { src ->
+                val k = sourceKey(src)
+                val speedLabel = state.speedResults[k]
+                    ?.takeIf { it.state == SpeedTestState.DONE }
+                    ?.let { " · " + SpeedTestService.badgeLabel(it) }
+                    .orEmpty()
+                val mark = if (k == state.selectedSourceKey) "✓ " else ""
+                org.moontechlab.selenetv.ui.CardMenuItem(label = "$mark${src.sourceName} · ${src.episodes.size}集$speedLabel") {
+                    switchSource(k)
+                }
+            },
+            onClose = { switchMenuVisible = false },
         )
 
         // 播放页覆盖层：用 Dialog 建立独立焦点域（与 EpisodePickerDialog / SummaryDialog 同理）。

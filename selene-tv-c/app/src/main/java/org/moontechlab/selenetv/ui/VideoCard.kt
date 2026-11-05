@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -101,8 +102,9 @@ enum class VideoCardStyle(
     val episodePaddingH: Dp,
     val episodePaddingV: Dp
 ) {
-    MEDIUM(100.dp, 150.dp, 10.dp, 2.dp, 12, 30.dp, 12, 5.dp, 12, 6.dp, 3.dp),  // 中等尺寸
-    LARGE(120.dp, 180.dp, 12.dp, 3.dp, 14, 36.dp, 15, 6.dp, 14, 8.dp, 4.dp)    // 大尺寸
+    // 焦点框加粗：聚焦描边加粗一档（MEDIUM 2→3dp，LARGE 3→4dp），老人离远也看得清。
+    MEDIUM(100.dp, 150.dp, 10.dp, 3.dp, 12, 30.dp, 12, 5.dp, 12, 6.dp, 3.dp),  // 中等尺寸
+    LARGE(120.dp, 180.dp, 12.dp, 4.dp, 14, 36.dp, 15, 6.dp, 14, 8.dp, 4.dp)    // 大尺寸
 }
 
 /**
@@ -276,6 +278,16 @@ fun VideoCard(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer { alpha = if (dimmed) 0.4f else 1f }
+                        // 聚焦加亮：白光晕（须在 clip 之前，否则会被裁掉）
+                        .then(
+                            if (isFocused) {
+                                Modifier.shadow(
+                                    elevation = 12.dp,
+                                    shape = RoundedCornerShape(cornerRadius),
+                                    spotColor = Color.White.copy(alpha = 0.55f),
+                                )
+                            } else Modifier
+                        )
                         .clip(RoundedCornerShape(cornerRadius))
                         .background(Color(0xFF2A2A2A))
                         .then(

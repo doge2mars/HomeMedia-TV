@@ -41,7 +41,6 @@ private val SHELF_KIND_OPTIONS = listOf(
     FilterOption("动漫", "动漫"),
     FilterOption("短剧", "短剧"),
     FilterOption("综艺", "综艺"),
-    FilterOption("体育", "体育"),
     FilterOption("其他", "其他")
 )
 

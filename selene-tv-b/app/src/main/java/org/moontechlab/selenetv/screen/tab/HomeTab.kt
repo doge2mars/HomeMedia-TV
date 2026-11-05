@@ -197,8 +197,12 @@ fun HomeTab(
                     Repositories.userData().getPlayRecords()
                 }
                 playRecordsMap = records
+                // 继续观看只留最近 6 部未看完的：已看完（离结尾不到 3 分钟）的不再占行，
+                // 与网页端「播到离结尾不到 3 分钟不保存进度」同一口径。
                 val newRecords = records.values
+                    .filter { it.totalTime <= 0L || it.playTime < it.totalTime - 180L }
                     .sortedByDescending { it.saveTime }
+                    .take(6)
                     .map { it.toVideoInfo() }
                 // 数据未变则不重新赋值，避免触发 LazyRow 的 focusRestorer 把焦点重置到第一个
                 // （从详情返回时若 homeRefreshKey 刷新恰好在焦点恢复后完成，会抢走焦点）

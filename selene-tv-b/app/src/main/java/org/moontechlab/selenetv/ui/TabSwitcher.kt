@@ -66,6 +66,8 @@ fun TabSwitcher(
         listOf(
             TabItem("search", "搜索", Icons.Default.Search, isIconOnly = true),
             TabItem("home", "首页", Icons.Default.Home),
+            TabItem("favorites", "收藏", Icons.Default.Favorite),
+            TabItem("history", "历史", Icons.Default.History),
             TabItem("movies", "电影", Icons.Default.Movie),
             TabItem("series", "剧集", Icons.Default.Tv),
             TabItem("anime", "动漫", Icons.Default.Pets),
