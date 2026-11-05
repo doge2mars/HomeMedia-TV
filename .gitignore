@@ -1,0 +1,14 @@
+# signing / local config (never commit)
+*.jks
+key.properties
+local.properties
+keystore.pass
+# build outputs
+build/
+.gradle/
+out/
+apk-out-b/
+apk-out-c/
+*.apk
+# logs
+*.log
