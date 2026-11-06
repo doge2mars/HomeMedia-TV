@@ -83,9 +83,7 @@ fun HomeTab(
     val doubanService = remember { DoubanService.getInstance(context) }
     val bangumiService = remember { BangumiService.getInstance(context) }
 
-    // 登录态：未登录时隐藏「继续观看」「我的收藏」并跳过其加载。
-    // 随 homeRefreshKey 重新读取（登录后从其他页返回会刷新）。
-    val isLoggedIn = remember(homeRefreshKey) { AppDataService.isLoggedInSync() || AppDataService.isLocalModeSync() }
+    // 2026-11-06 第四批：首页「继续观看」「我的收藏」两行已移除，登录态判断随之去掉。
 
     // 用于匹配的播放记录 Map（收藏夹需要）
     var playRecordsMap by remember { mutableStateOf<Map<String, org.moontechlab.selenetv.model.PlayRecord>>(emptyMap()) }
@@ -311,20 +309,15 @@ fun HomeTab(
         }
     }
 
-    // 初始加载
+    // 初始加载（2026-11-06 第四批：首页不再显示「继续观看」「我的收藏」，
+    // 收藏进顶部「收藏」Tab、播放记录进顶部「历史」Tab，故不再加载播放历史与收藏夹）
     LaunchedEffect(Unit) {
-        loadPlayRecordsAndFavorites()
         loadHotMovies()
         loadHotTvShows()
         loadBangumi()
         loadHotShows()
     }
 
-    LaunchedEffect(homeRefreshKey) {
-        if (homeRefreshKey > 0) {  // 跳过首次（已由 LaunchedEffect(Unit) 触发）
-            loadPlayRecordsAndFavorites()
-        }
-    }
 
     // 追踪是否是垂直方向的按键
     var isVerticalNavigation by remember { mutableStateOf(false) }
@@ -368,41 +361,7 @@ fun HomeTab(
             // 顶部留出 TabSwitcher 的空间 + 额外间距
             Spacer(modifier = Modifier.height(64.dp))
             
-            // 播放历史 - 仅登录后、且有数据/加载中/有错误时显示（#4 未登录隐藏）
-            if (isLoggedIn && (playRecords.isNotEmpty() || isLoadingPlayRecords || errorPlayRecords != null)) {
-                RecommendSection(
-                    title = "继续观看",
-                    videos = playRecords,
-                    from = VideoCardSource.PLAYRECORD,
-                    isLoading = isLoadingPlayRecords,
-                    errorMessage = errorPlayRecords,
-                    onRetry = { loadPlayRecordsAndFavorites() },
-                    onVideoClick = onVideoSelected,
-                    onVideoLongClick = { video ->
-                        menuTarget = video
-                        menuFrom = VideoCardSource.PLAYRECORD
-                        menuVisible = true
-                    }
-                )
-            }
 
-            // 收藏夹 - 仅登录后、且有数据/加载中/有错误时显示（#4 未登录隐藏）
-            if (isLoggedIn && (favorites.isNotEmpty() || isLoadingFavorites || errorFavorites != null)) {
-                RecommendSection(
-                    title = "我的收藏",
-                    videos = favorites,
-                    from = VideoCardSource.FAVORITE,
-                    isLoading = isLoadingFavorites,
-                    errorMessage = errorFavorites,
-                    onRetry = { loadPlayRecordsAndFavorites() },
-                    onVideoClick = onVideoSelected,
-                    onVideoLongClick = { video ->
-                        menuTarget = video
-                        menuFrom = VideoCardSource.FAVORITE
-                        menuVisible = true
-                    }
-                )
-            }
 
             RecommendSection(
                 title = "热门电影",
