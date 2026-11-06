@@ -90,6 +90,7 @@ fun <T> MediaGridScaffold(
     itemToVideoInfo: (T) -> VideoInfo,
     itemToSource: (T) -> VideoCardSource,
     onItemClick: (T) -> Unit,
+    onItemLongClick: ((T) -> Unit)? = null,
     onRetry: () -> Unit,
     onLoadMore: () -> Unit,
     onContentNavigateUp: () -> Unit,
@@ -199,6 +200,7 @@ fun <T> MediaGridScaffold(
                     onVerticalNavigate = ::handleVerticalScroll,
                     onCardFocus = ::onCardFocus,
                     onItemClick = onItemClick,
+                    onItemLongClick = onItemLongClick,
                     focusRequester = contentFocusRequester,
                     onNavigateUp = onContentNavigateUp
                 )
@@ -253,6 +255,7 @@ private fun <T> MediaGridContent(
     onVerticalNavigate: (Int) -> Unit,
     onCardFocus: (Int) -> Unit,
     onItemClick: (T) -> Unit,
+    onItemLongClick: ((T) -> Unit)? = null,
     focusRequester: FocusRequester,
     onNavigateUp: () -> Unit
 ) {
@@ -306,6 +309,7 @@ private fun <T> MediaGridContent(
                     onVerticalNavigate = onVerticalNavigate,
                     onCardFocus = onCardFocus,
                     onItemClick = onItemClick,
+                    onItemLongClick = onItemLongClick,
                     onNavigateUp = onNavigateUp
                 )
             }
@@ -348,6 +352,7 @@ private fun <T> MediaGridRow(
     onVerticalNavigate: (Int) -> Unit,
     onCardFocus: (Int) -> Unit,
     onItemClick: (T) -> Unit,
+    onItemLongClick: ((T) -> Unit)? = null,
     onNavigateUp: () -> Unit = {}
 ) {
     if (!isVisible && items.isNotEmpty()) {
@@ -368,6 +373,7 @@ private fun <T> MediaGridRow(
                 videoInfo = itemToVideoInfo(item),
                 from = itemToSource(item),
                 onClick = { onItemClick(item) },
+                onLongClick = onItemLongClick?.let { handler -> { handler(item) } },
                 style = VideoCardStyle.LARGE,
                 modifier = Modifier
                     .onFocusChanged { focusState ->

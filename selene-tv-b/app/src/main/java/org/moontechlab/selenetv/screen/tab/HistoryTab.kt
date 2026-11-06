@@ -26,6 +26,9 @@ import kotlinx.coroutines.withContext
 import org.moontechlab.selenetv.data.Repositories
 import org.moontechlab.selenetv.model.VideoInfo
 import org.moontechlab.selenetv.ui.VideoCardSource
+import org.moontechlab.selenetv.ui.CardContextMenu
+import org.moontechlab.selenetv.ui.CardMenuItem
+import org.moontechlab.selenetv.ui.ConfirmDialog
 import org.moontechlab.selenetv.ui.grid.MediaGridScaffold
 
 /**
@@ -48,6 +51,15 @@ fun HistoryTab(
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
+    // 长按菜单：当前被长按的卡片；menuVisible 单独控制显隐
+    var menuTarget by remember { mutableStateOf<VideoInfo?>(null) }
+    var menuVisible by remember { mutableStateOf(false) }
+    // 二次确认弹窗
+    var confirmVisible by remember { mutableStateOf(false) }
+    var confirmTitle by remember { mutableStateOf("") }
+    var confirmMessage by remember { mutableStateOf("") }
+    var confirmAction by remember { mutableStateOf<() -> Unit>({}) }
+
     // 无筛选行：Tab 传进来的 focusRequester 直接挂到网格内容上，
     // TabSwitcher 按下即落到首张卡片（与 HomeTab 的 Column 同一接法）。
     val contentFocusRequester = focusRequester
@@ -55,6 +67,28 @@ fun HistoryTab(
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp.toFloat()
     val gridLayout = remember(screenWidthDp) { calculateGridLayout(screenWidthDp) }
+
+    // 弹出二次确认弹窗
+    fun requestConfirm(title: String, message: String, action: () -> Unit) {
+        confirmTitle = title
+        confirmMessage = message
+        confirmAction = action
+        confirmVisible = true
+    }
+
+    // 删除播放记录：乐观移除 + 失败回滚
+    fun deletePlayRecordAction(video: VideoInfo) {
+        val prev = items
+        items = items.filterNot { it.source == video.source && it.id == video.id }
+        coroutineScope.launch {
+            try {
+                withContext(Dispatchers.IO) { Repositories.userData().deletePlayRecord(video.source, video.id) }
+            } catch (e: Exception) {
+                items = prev
+                android.util.Log.e("HistoryTab", "删除播放记录失败: ${e.message}")
+            }
+        }
+    }
 
     fun loadHistory() {
         coroutineScope.launch {
@@ -96,11 +130,41 @@ fun HistoryTab(
                 itemToVideoInfo = { it },
                 itemToSource = { VideoCardSource.PLAYRECORD },
                 onItemClick = { item -> onVideoSelected(item) },
+                onItemLongClick = { item ->
+                    menuTarget = item
+                    menuVisible = true
+                },
                 onRetry = { loadHistory() },
                 onLoadMore = {},
                 onContentNavigateUp = { focusManager.moveFocus(FocusDirection.Up) },
                 filterSection = {},
             )
         }
+
+        // ===== 长按上下文菜单（常驻组合树，由 menuVisible 控制显隐）=====
+        val target = menuTarget
+        CardContextMenu(
+            visible = menuVisible,
+            title = target?.title ?: "",
+            items = if (target != null) {
+                listOf(
+                    CardMenuItem("删除记录", isDestructive = true) {
+                        requestConfirm("删除播放记录", "确定删除「${target.title}」的播放记录吗？") {
+                            deletePlayRecordAction(target)
+                        }
+                    }
+                )
+            } else emptyList(),
+            onClose = { menuVisible = false }
+        )
+
+        // ===== 二次确认弹窗 =====
+        ConfirmDialog(
+            visible = confirmVisible,
+            title = confirmTitle,
+            message = confirmMessage,
+            onConfirm = confirmAction,
+            onCancel = { confirmVisible = false }
+        )
     }
 }
