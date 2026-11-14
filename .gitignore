@@ -12,3 +12,4 @@ apk-out-c/
 *.apk
 # logs
 *.log
+!releases/*.apk
